@@ -18,6 +18,12 @@ let lastLossWord = "";
 let lastLossWordAt = 0;
 let isHomeReviewMode = false;
 
+const TRUSTED_LEARN_SOURCES = new Set(['known-selectors', 'recent-chips', 'input-value']);
+const BLOCKED_UI_TOKENS = new Set([
+    'đấu', 'xếp', 'hạng', 'rank', 'leaderboard', 'ngẫu', 'nhiên', 'mở', 'rộng',
+    'chữ', 'nghĩa', 'copy', 'link', 'tháng', 'này', 'vị', 'trí', 'thắng', 'điểm'
+]);
+
 function loadLearnedState() {
     try {
         const rawHard = localStorage.getItem('noitu_learned_hard_words');
@@ -48,12 +54,69 @@ function loadLearnedState() {
         learnedDictionary = dictObj && typeof dictObj === 'object' ? dictObj : {};
         opponentProfiles = opponentObj && typeof opponentObj === 'object' ? opponentObj : {};
         currentOpponentName = normalizePlayerName(rawCurrentOpponent || '');
+        sanitizeLearnedData();
     } catch (err) {
         console.warn('Không tải được dữ liệu từ đã học:', err);
         killerWordCounts = {};
         learnedDictionary = {};
         opponentProfiles = {};
         currentOpponentName = '';
+    }
+}
+
+function isUiNoiseWord(rawWord) {
+    const normalized = normalizeText(rawWord);
+    if (!normalized) return true;
+
+    const tokens = normalized.split(' ').filter(Boolean);
+    if (tokens.length === 0) return true;
+
+    // Nếu cụm phần lớn là token UI thì bỏ.
+    const blockedCount = tokens.filter(t => BLOCKED_UI_TOKENS.has(t)).length;
+    if (blockedCount > 0 && blockedCount >= Math.ceil(tokens.length / 2)) return true;
+
+    // Chặn một số cụm đặc trưng của trang chủ/xếp hạng.
+    if (/đấu xếp hạng|xếp hạng|đấu rank|copy link|ngẫu nhiên|mở rộng|chữ nghĩa/.test(normalized)) {
+        return true;
+    }
+
+    return false;
+}
+
+function sanitizeLearnedData() {
+    let changed = false;
+
+    for (const word of Array.from(killerWords)) {
+        if (isUiNoiseWord(word)) {
+            killerWords.delete(word);
+            delete killerWordCounts[word];
+            changed = true;
+        }
+    }
+
+    Object.keys(learnedDictionary || {}).forEach(key => {
+        const filtered = (learnedDictionary[key] || []).filter(w => !isUiNoiseWord(w));
+        if (filtered.length !== (learnedDictionary[key] || []).length) {
+            changed = true;
+        }
+
+        if (filtered.length === 0) {
+            delete learnedDictionary[key];
+            changed = true;
+        } else {
+            learnedDictionary[key] = filtered;
+        }
+    });
+
+    Object.keys(killerWordCounts || {}).forEach(word => {
+        if (isUiNoiseWord(word)) {
+            delete killerWordCounts[word];
+            changed = true;
+        }
+    });
+
+    if (changed) {
+        persistLearnedState();
     }
 }
 
@@ -221,6 +284,7 @@ function inferCurrentOpponentName() {
 function markKillerWord(rawWord) {
     const normalized = normalizeText(rawWord);
     if (!isLikelyWord(normalized)) return;
+    if (isUiNoiseWord(normalized)) return;
 
     killerWords.add(normalized);
     killerWordCounts[normalized] = Number(killerWordCounts[normalized] || 0) + 1;
@@ -248,6 +312,7 @@ function unmarkKillerWord(rawWord) {
 function registerLearnedWord(rawWord) {
     const normalized = normalizeText(rawWord);
     if (!isLikelyWord(normalized)) return;
+    if (isUiNoiseWord(normalized)) return;
 
     const firstPart = normalized.split(' ')[0];
     if (!firstPart) return;
@@ -439,7 +504,10 @@ function refreshOpponentReviewUI() {
 
         return `
             <div class="op-row ${name === currentOpponentName ? 'op-row-active' : ''}">
-                <div class="op-name">${name}</div>
+                <div class="op-head">
+                    <div class="op-name">${name}</div>
+                    <button class="op-remove-btn" type="button" data-user="${name}" title="Xóa user này">xóa</button>
+                </div>
                 <div class="op-meta">Lượt ghi nhận: <b>${totalPlayed}</b></div>
                 <div class="op-meta">Key hay dùng: <b>${keyLine}</b></div>
             </div>
@@ -447,6 +515,24 @@ function refreshOpponentReviewUI() {
     }).join('');
 
     opponentReviewContent.innerHTML = topList;
+}
+
+function removeOpponentProfile(userName) {
+    const normalizedName = normalizePlayerName(userName);
+    if (!normalizedName) return;
+    if (!opponentProfiles[normalizedName]) return;
+
+    delete opponentProfiles[normalizedName];
+
+    if (currentOpponentName === normalizedName) {
+        currentOpponentName = '';
+    }
+
+    delete opponentRecentWordState[normalizedName];
+    persistLearnedState();
+    refreshReviewInfoUI();
+    refreshOpponentReviewUI();
+    console.log(`🧹 Đã xóa profile đối thủ: ${normalizedName}`);
 }
 
 function getSortedKillerWords() {
@@ -503,6 +589,18 @@ if (toggleOpponentReviewBtn) {
     });
 }
 
+if (opponentReviewContent) {
+    opponentReviewContent.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        if (!target.classList.contains('op-remove-btn')) return;
+
+        const userName = target.getAttribute('data-user') || '';
+        if (!userName) return;
+        removeOpponentProfile(userName);
+    });
+}
+
 if (killerListContent) {
     killerListContent.addEventListener('click', (event) => {
         const target = event.target;
@@ -535,6 +633,10 @@ function showSuggestions(word) {
     }
 
     const normalized = normalizeText(word);
+    if (isUiNoiseWord(normalized)) {
+        renderHomeReviewMode();
+        return;
+    }
     const lastWord = normalized.split(' ').pop();
     const listDiv = document.getElementById('suggestion-list');
     const metaDiv = document.getElementById('difficulty-meta');
@@ -865,13 +967,23 @@ function updateFromPage() {
         }
 
         latestDetectedWord = normalizeText(foundWord);
-        if (currentOpponentName && latestDetectedWord) {
+        if (isUiNoiseWord(latestDetectedWord)) {
+            latestDetectedWord = '';
+            renderHomeReviewMode();
+            return;
+        }
+
+        const canLearn = TRUSTED_LEARN_SOURCES.has(source);
+
+        if (currentOpponentName && latestDetectedWord && canLearn) {
             registerOpponentWord(currentOpponentName, latestDetectedWord);
             refreshReviewInfoUI();
             refreshOpponentReviewUI();
         }
-        detectAndStoreLossKillerWord();
-        registerLearnedWord(foundWord);
+        if (canLearn) {
+            detectAndStoreLossKillerWord();
+            registerLearnedWord(foundWord);
+        }
         showSuggestions(foundWord);
     } finally {
         isUpdating = false;

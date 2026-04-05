@@ -134,6 +134,14 @@
     padding: 6px 8px;
 }
 
+.op-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 2px;
+}
+
 .op-row-active {
     border-color: var(--nt-accent);
     box-shadow: 0 2px 8px var(--nt-accent-glow);
@@ -143,7 +151,23 @@
     font-size: 12px;
     font-weight: 800;
     color: var(--nt-ink);
-    margin-bottom: 2px;
+}
+
+.op-remove-btn {
+    border: 1px solid #fecaca;
+    background: #fff1f2;
+    color: #b91c1c;
+    border-radius: 6px;
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 2px 6px;
+    cursor: pointer;
+}
+
+.op-remove-btn:hover {
+    background: #ef4444;
+    border-color: #ef4444;
+    color: #ffffff;
 }
 
 .op-meta {
