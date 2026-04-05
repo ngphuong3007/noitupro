@@ -778,6 +778,11 @@ function showSuggestions(word) {
         const aNext = getNextKey(aNorm);
         const bNext = getNextKey(bNorm);
 
+        const aSaved = killerWords.has(aNorm) ? 1 : 0;
+        const bSaved = killerWords.has(bNorm) ? 1 : 0;
+        // Ưu tiên từ đã lưu lên đầu theo yêu cầu.
+        if (aSaved !== bSaved) return bSaved - aSaved;
+
         const aAnalysis = getCachedAnalysis(a);
         const bAnalysis = getCachedAnalysis(b);
         const aMate = isCheckmateMove(aAnalysis) ? 1 : 0;
@@ -793,10 +798,6 @@ function showSuggestions(word) {
         const bOppStrength = getOpponentStrengthForKey(currentOpponentName, bNext);
         // Ưu tiên từ khắc chế: ép đối thủ vào key mà họ ít dùng.
         if (aOppStrength !== bOppStrength) return aOppStrength - bOppStrength;
-
-        const aKiller = killerWords.has(aNorm) ? 1 : 0;
-        const bKiller = killerWords.has(bNorm) ? 1 : 0;
-        if (aKiller !== bKiller) return bKiller - aKiller;
 
         return getDifficultyPercent(bNorm) - getDifficultyPercent(aNorm);
     });
