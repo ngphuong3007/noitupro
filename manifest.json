@@ -1,7 +1,7 @@
 {
 	"manifest_version": 3,
 	"name": "Nối từ Extension",
-	"version": "3.6.0",
+	"version": "3.6.12",
 	"description": "Gợi ý từ nối tiếng Việt theo từ cuối.",
 	"content_scripts": [
 		{

@@ -211,6 +211,75 @@ function getCounterRiskPercent(nextKey, opponentName) {
     return Math.round(clamp(baseRisk + branchRisk + opponentRisk, 4, 99));
 }
 
+function getMoveAnalysis(moveText, opponentName) {
+    const normalizedMove = normalizeText(moveText);
+    const nextKey = getNextKey(normalizedMove);
+    const opponentMoves = (vietnameseDict[nextKey] || []).slice();
+
+    if (opponentMoves.length === 0) {
+        return {
+            risk: 4,
+            survivalRate: 100,
+            opponentMoveCount: 0,
+            bestCounterReplies: 0,
+            reason: 'Khóa nhánh đối thủ ngay lượt tới'
+        };
+    }
+
+    const simulated = opponentMoves.map(oppMove => {
+        const myReplyKey = getNextKey(oppMove);
+        const myReplyCount = getBranchCountByNextKey(myReplyKey);
+        const oppFavForReplyKey = getOpponentStrengthForKey(opponentName, myReplyKey);
+        return {
+            oppMove,
+            myReplyKey,
+            myReplyCount,
+            oppFavForReplyKey
+        };
+    });
+
+    simulated.sort((a, b) => {
+        if (a.myReplyCount !== b.myReplyCount) return a.myReplyCount - b.myReplyCount;
+        return b.oppFavForReplyKey - a.oppFavForReplyKey;
+    });
+
+    const sampled = simulated.slice(0, 10);
+    const survivable = sampled.filter(item => item.myReplyCount > 0).length;
+    const survivalRate = Math.round((survivable / sampled.length) * 100);
+    const bestCounterReplies = sampled[0].myReplyCount;
+    const strongestFav = sampled[0].oppFavForReplyKey;
+
+    const pressureFromBestCounter = bestCounterReplies === 0
+        ? 68
+        : clamp(56 - Math.log2(bestCounterReplies + 1) * 12, 10, 56);
+    const pressureFromOptions = Math.log2(opponentMoves.length + 1) * 8;
+    const pressureFromOpponentHabit = Math.log2(strongestFav + 1) * 12;
+    const pressureFromLowSurvival = (100 - survivalRate) * 0.35;
+
+    const risk = Math.round(clamp(
+        pressureFromBestCounter + pressureFromOptions + pressureFromOpponentHabit + pressureFromLowSurvival,
+        4,
+        99
+    ));
+
+    let reason = `Đối thủ có ${opponentMoves.length} nhánh phản`; 
+    if (bestCounterReplies === 0) {
+        reason = 'Có nước phản đòn khóa bạn';
+    } else if (survivalRate <= 35) {
+        reason = `Tỷ lệ sống thấp (${survivalRate}%)`;
+    } else if (strongestFav >= 4) {
+        reason = 'Đối thủ quen key phản đòn này';
+    }
+
+    return {
+        risk,
+        survivalRate,
+        opponentMoveCount: opponentMoves.length,
+        bestCounterReplies,
+        reason
+    };
+}
+
 function getRiskClass(percent) {
     if (percent >= 70) return 'risk-high';
     if (percent >= 40) return 'risk-mid';
@@ -689,6 +758,15 @@ function showSuggestions(word) {
     lastRenderedWord = lastWord;
 
     const suggestions = (vietnameseDict[lastWord] || []).slice();
+    const moveAnalysisCache = {};
+
+    function getCachedAnalysis(phrase) {
+        const cacheKey = `${currentOpponentName}::${phrase}`;
+        if (!moveAnalysisCache[cacheKey]) {
+            moveAnalysisCache[cacheKey] = getMoveAnalysis(phrase, currentOpponentName);
+        }
+        return moveAnalysisCache[cacheKey];
+    }
 
     suggestions.sort((a, b) => {
         const aNorm = normalizeText(a);
@@ -696,8 +774,8 @@ function showSuggestions(word) {
         const aNext = getNextKey(aNorm);
         const bNext = getNextKey(bNorm);
 
-        const aRisk = getCounterRiskPercent(aNext, currentOpponentName);
-        const bRisk = getCounterRiskPercent(bNext, currentOpponentName);
+        const aRisk = getCachedAnalysis(a).risk;
+        const bRisk = getCachedAnalysis(b).risk;
         if (aRisk !== bRisk) return aRisk - bRisk;
 
         const aOppStrength = getOpponentStrengthForKey(currentOpponentName, aNext);
@@ -723,16 +801,22 @@ function showSuggestions(word) {
             const killCount = getKillerCount(s);
             const nextKey = getNextKey(s);
             const opponentStrength = getOpponentStrengthForKey(currentOpponentName, nextKey);
-            const counterRisk = getCounterRiskPercent(nextKey, currentOpponentName);
+            const analysis = getCachedAnalysis(s);
+            const counterRisk = analysis.risk;
             const counterBadge = currentOpponentName ? `<span class="counter-badge" title="Đối thủ quen key này: ${opponentStrength}">khắc chế ${opponentStrength}</span>` : '';
             const killerBadge = killCount > 0 ? `<span class="killer-star" title="Từng giết bạn x${killCount}">⭐x${killCount}</span>` : '';
             const btn = document.createElement('button');
             btn.className = 'suggest-btn';
             btn.innerHTML = `
-                <span class="suggest-word">${killerBadge}${s}</span>
-                ${counterBadge}
-                <span class="risk-badge ${getRiskClass(counterRisk)}" title="Rủi ro phản đòn: ${counterRisk}%">rủi ro ${counterRisk}%</span>
-                <span class="suggest-diff ${getDifficultyClass(difficulty)}">${difficulty}%</span>
+                <span class="suggest-main">
+                    <span class="suggest-word">${killerBadge}${s}</span>
+                    <span class="suggest-reason">${analysis.reason} · sống ${analysis.survivalRate}%</span>
+                </span>
+                <span class="suggest-tags">
+                    ${counterBadge}
+                    <span class="risk-badge ${getRiskClass(counterRisk)}" title="Rủi ro phản đòn: ${counterRisk}%">rủi ro ${counterRisk}%</span>
+                    <span class="suggest-diff ${getDifficultyClass(difficulty)}">${difficulty}%</span>
+                </span>
             `;
             btn.onclick = () => {
                 const input = document.querySelector('input.input.is-large, input[type="text"], textarea');
