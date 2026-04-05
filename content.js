@@ -197,6 +197,26 @@ function getDifficultyClass(percent) {
     return 'diff-easy';
 }
 
+function getCounterRiskPercent(nextKey, opponentName) {
+    const branchCount = getBranchCountByNextKey(nextKey);
+    const opponentStrength = getOpponentStrengthForKey(opponentName, nextKey);
+
+    // Nhánh càng nhiều và đối thủ càng quen key đó thì càng dễ bị phản đòn.
+    if (branchCount <= 0) return 4;
+
+    const branchRisk = Math.log2(branchCount + 1) * 16;
+    const opponentRisk = Math.log2(opponentStrength + 1) * 22;
+    const baseRisk = 8;
+
+    return Math.round(clamp(baseRisk + branchRisk + opponentRisk, 4, 99));
+}
+
+function getRiskClass(percent) {
+    if (percent >= 70) return 'risk-high';
+    if (percent >= 40) return 'risk-mid';
+    return 'risk-low';
+}
+
 function normalizePlayerName(name) {
     return (name || '').replace(/\s+/g, ' ').trim();
 }
@@ -676,6 +696,10 @@ function showSuggestions(word) {
         const aNext = getNextKey(aNorm);
         const bNext = getNextKey(bNorm);
 
+        const aRisk = getCounterRiskPercent(aNext, currentOpponentName);
+        const bRisk = getCounterRiskPercent(bNext, currentOpponentName);
+        if (aRisk !== bRisk) return aRisk - bRisk;
+
         const aOppStrength = getOpponentStrengthForKey(currentOpponentName, aNext);
         const bOppStrength = getOpponentStrengthForKey(currentOpponentName, bNext);
         // Ưu tiên từ khắc chế: ép đối thủ vào key mà họ ít dùng.
@@ -699,6 +723,7 @@ function showSuggestions(word) {
             const killCount = getKillerCount(s);
             const nextKey = getNextKey(s);
             const opponentStrength = getOpponentStrengthForKey(currentOpponentName, nextKey);
+            const counterRisk = getCounterRiskPercent(nextKey, currentOpponentName);
             const counterBadge = currentOpponentName ? `<span class="counter-badge" title="Đối thủ quen key này: ${opponentStrength}">khắc chế ${opponentStrength}</span>` : '';
             const killerBadge = killCount > 0 ? `<span class="killer-star" title="Từng giết bạn x${killCount}">⭐x${killCount}</span>` : '';
             const btn = document.createElement('button');
@@ -706,6 +731,7 @@ function showSuggestions(word) {
             btn.innerHTML = `
                 <span class="suggest-word">${killerBadge}${s}</span>
                 ${counterBadge}
+                <span class="risk-badge ${getRiskClass(counterRisk)}" title="Rủi ro phản đòn: ${counterRisk}%">rủi ro ${counterRisk}%</span>
                 <span class="suggest-diff ${getDifficultyClass(difficulty)}">${difficulty}%</span>
             `;
             btn.onclick = () => {
