@@ -280,6 +280,10 @@ function getMoveAnalysis(moveText, opponentName) {
     };
 }
 
+function isCheckmateMove(analysis) {
+    return !!analysis && Number(analysis.opponentMoveCount || 0) === 0;
+}
+
 function getRiskClass(percent) {
     if (percent >= 70) return 'risk-high';
     if (percent >= 40) return 'risk-mid';
@@ -774,8 +778,15 @@ function showSuggestions(word) {
         const aNext = getNextKey(aNorm);
         const bNext = getNextKey(bNorm);
 
-        const aRisk = getCachedAnalysis(a).risk;
-        const bRisk = getCachedAnalysis(b).risk;
+        const aAnalysis = getCachedAnalysis(a);
+        const bAnalysis = getCachedAnalysis(b);
+        const aMate = isCheckmateMove(aAnalysis) ? 1 : 0;
+        const bMate = isCheckmateMove(bAnalysis) ? 1 : 0;
+        // Ưu tiên tuyệt đối nước kết liễu (đối thủ hết nhánh ngay).
+        if (aMate !== bMate) return bMate - aMate;
+
+        const aRisk = aAnalysis.risk;
+        const bRisk = bAnalysis.risk;
         if (aRisk !== bRisk) return aRisk - bRisk;
 
         const aOppStrength = getOpponentStrengthForKey(currentOpponentName, aNext);
@@ -805,6 +816,7 @@ function showSuggestions(word) {
             const counterRisk = analysis.risk;
             const counterBadge = currentOpponentName ? `<span class="counter-badge" title="Đối thủ quen key này: ${opponentStrength}">khắc chế ${opponentStrength}</span>` : '';
             const killerBadge = killCount > 0 ? `<span class="killer-star" title="Từng giết bạn x${killCount}">⭐x${killCount}</span>` : '';
+            const mateBadge = isCheckmateMove(analysis) ? '<span class="mate-badge" title="Đối thủ không còn nhánh phản">KẾT LIỄU</span>' : '';
             const btn = document.createElement('button');
             btn.className = 'suggest-btn';
             btn.innerHTML = `
@@ -813,6 +825,7 @@ function showSuggestions(word) {
                     <span class="suggest-reason">${analysis.reason} · sống ${analysis.survivalRate}%</span>
                 </span>
                 <span class="suggest-tags">
+                    ${mateBadge}
                     ${counterBadge}
                     <span class="risk-badge ${getRiskClass(counterRisk)}" title="Rủi ro phản đòn: ${counterRisk}%">rủi ro ${counterRisk}%</span>
                     <span class="suggest-diff ${getDifficultyClass(difficulty)}">${difficulty}%</span>

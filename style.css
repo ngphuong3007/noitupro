@@ -351,6 +351,17 @@
     border: 1px solid #fca5a5;
 }
 
+.mate-badge {
+    font-size: 10px;
+    font-weight: 800;
+    border-radius: 5px;
+    padding: 2px 6px;
+    white-space: nowrap;
+    background: #fee2e2;
+    color: #b91c1c;
+    border: 1px solid #fca5a5;
+}
+
 /* ─── Difficulty badges ─── */
 .suggest-diff {
     font-size: 10.5px;
