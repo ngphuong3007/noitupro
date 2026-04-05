@@ -47,6 +47,32 @@
     font-weight: 500;
 }
 
+.review-info {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--nt-border);
+    background: #f7fffd;
+}
+
+.review-title {
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--nt-accent-dark);
+    margin-bottom: 4px;
+}
+
+.review-row {
+    font-size: 11.5px;
+    color: #475569;
+    margin-bottom: 2px;
+    line-height: 1.35;
+}
+
+.review-sub {
+    margin-top: 5px;
+    font-size: 11px;
+    color: #64748b;
+}
+
 /* ─── Action buttons ─── */
 .helper-actions {
     padding: 6px 10px;
@@ -85,6 +111,45 @@
     border-bottom: 1px solid var(--nt-border);
     background: var(--nt-surface);
     padding: 7px 10px;
+}
+
+.opponent-review-panel {
+    border-bottom: 1px solid var(--nt-border);
+    background: #f8fbff;
+    padding: 7px 10px;
+}
+
+.opponent-review-content {
+    max-height: 160px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.op-row {
+    border: 1px solid #d8e2f0;
+    background: #ffffff;
+    border-radius: 8px;
+    padding: 6px 8px;
+}
+
+.op-row-active {
+    border-color: var(--nt-accent);
+    box-shadow: 0 2px 8px var(--nt-accent-glow);
+}
+
+.op-name {
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--nt-ink);
+    margin-bottom: 2px;
+}
+
+.op-meta {
+    font-size: 11px;
+    color: #5b6b81;
+    line-height: 1.35;
 }
 
 .killer-list-content {
@@ -202,6 +267,17 @@
     margin-right: 4px;
     color: var(--nt-danger);
     font-size: 12px;
+}
+
+.counter-badge {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--nt-accent-dark);
+    background: var(--nt-accent-soft);
+    border: 1px solid #99f6e4;
+    border-radius: 5px;
+    padding: 2px 6px;
+    white-space: nowrap;
 }
 
 /* ─── Difficulty badges ─── */

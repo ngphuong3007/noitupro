@@ -9,10 +9,14 @@ const learnedHardWords = new Set();
 const killerWords = new Set();
 let killerWordCounts = {};
 let learnedDictionary = {};
+let opponentProfiles = {};
+let currentOpponentName = '';
+let opponentRecentWordState = {};
 let latestDetectedWord = "";
 let lastLossStateAt = 0;
 let lastLossWord = "";
 let lastLossWordAt = 0;
+let isHomeReviewMode = false;
 
 function loadLearnedState() {
     try {
@@ -20,11 +24,14 @@ function loadLearnedState() {
         const rawKiller = localStorage.getItem('noitu_killer_words');
         const rawKillerCounts = localStorage.getItem('noitu_killer_word_counts');
         const rawDict = localStorage.getItem('noitu_learned_dictionary');
+        const rawOppProfiles = localStorage.getItem('noitu_opponent_profiles');
+        const rawCurrentOpponent = localStorage.getItem('noitu_current_opponent');
 
         const hardList = rawHard ? JSON.parse(rawHard) : [];
         const killerList = rawKiller ? JSON.parse(rawKiller) : [];
         const killerCountsObj = rawKillerCounts ? JSON.parse(rawKillerCounts) : {};
         const dictObj = rawDict ? JSON.parse(rawDict) : {};
+        const opponentObj = rawOppProfiles ? JSON.parse(rawOppProfiles) : {};
 
         hardList.forEach(w => {
             const n = normalizeText(w);
@@ -39,10 +46,14 @@ function loadLearnedState() {
         killerWordCounts = killerCountsObj && typeof killerCountsObj === 'object' ? killerCountsObj : {};
 
         learnedDictionary = dictObj && typeof dictObj === 'object' ? dictObj : {};
+        opponentProfiles = opponentObj && typeof opponentObj === 'object' ? opponentObj : {};
+        currentOpponentName = normalizePlayerName(rawCurrentOpponent || '');
     } catch (err) {
         console.warn('Không tải được dữ liệu từ đã học:', err);
         killerWordCounts = {};
         learnedDictionary = {};
+        opponentProfiles = {};
+        currentOpponentName = '';
     }
 }
 
@@ -52,6 +63,8 @@ function persistLearnedState() {
         localStorage.setItem('noitu_killer_words', JSON.stringify(Array.from(killerWords)));
         localStorage.setItem('noitu_killer_word_counts', JSON.stringify(killerWordCounts));
         localStorage.setItem('noitu_learned_dictionary', JSON.stringify(learnedDictionary));
+        localStorage.setItem('noitu_opponent_profiles', JSON.stringify(opponentProfiles));
+        localStorage.setItem('noitu_current_opponent', currentOpponentName || '');
     } catch (err) {
         console.warn('Không lưu được dữ liệu từ đã học:', err);
     }
@@ -121,12 +134,99 @@ function getDifficultyClass(percent) {
     return 'diff-easy';
 }
 
+function normalizePlayerName(name) {
+    return (name || '').replace(/\s+/g, ' ').trim();
+}
+
+function getOrCreateOpponentProfile(name) {
+    const normalizedName = normalizePlayerName(name);
+    if (!normalizedName) return null;
+
+    if (!opponentProfiles[normalizedName]) {
+        opponentProfiles[normalizedName] = {
+            playedWords: {},
+            startKeys: {},
+            killerWordsAgainstMe: {}
+        };
+    }
+
+    return opponentProfiles[normalizedName];
+}
+
+function registerOpponentWord(opponentName, rawWord) {
+    const normalizedWord = normalizeText(rawWord);
+    if (!isLikelyWord(normalizedWord)) return;
+
+    const normalizedName = normalizePlayerName(opponentName);
+    if (!normalizedName) return;
+    const now = Date.now();
+    const recent = opponentRecentWordState[normalizedName];
+    if (recent && recent.word === normalizedWord && now - recent.at < 7000) {
+        return;
+    }
+    opponentRecentWordState[normalizedName] = { word: normalizedWord, at: now };
+
+    const profile = getOrCreateOpponentProfile(normalizedName);
+    if (!profile) return;
+
+    profile.playedWords[normalizedWord] = Number(profile.playedWords[normalizedWord] || 0) + 1;
+
+    const startKey = normalizedWord.split(' ')[0] || '';
+    if (startKey) {
+        profile.startKeys[startKey] = Number(profile.startKeys[startKey] || 0) + 1;
+    }
+
+    persistLearnedState();
+}
+
+function registerOpponentKillerWord(opponentName, rawWord) {
+    const normalizedWord = normalizeText(rawWord);
+    if (!isLikelyWord(normalizedWord)) return;
+
+    const profile = getOrCreateOpponentProfile(opponentName);
+    if (!profile) return;
+
+    profile.killerWordsAgainstMe[normalizedWord] = Number(profile.killerWordsAgainstMe[normalizedWord] || 0) + 1;
+    persistLearnedState();
+}
+
+function getOpponentStrengthForKey(opponentName, key) {
+    const normalizedName = normalizePlayerName(opponentName);
+    if (!normalizedName || !key) return 0;
+
+    const profile = opponentProfiles[normalizedName];
+    if (!profile || !profile.startKeys) return 0;
+    return Number(profile.startKeys[key] || 0);
+}
+
+function inferCurrentOpponentName() {
+    const textNodes = Array.from(document.querySelectorAll('div, span, p, h2, h3'))
+        .filter(node => node && !node.closest('#noitu-helper-box') && node.children.length === 0)
+        .map(node => (node.innerText || '').trim())
+        .filter(Boolean);
+
+    for (const text of textNodes) {
+        const match = text.match(/^(.{2,40})\s+đang trả lời$/i);
+        if (match && match[1]) {
+            const name = normalizePlayerName(match[1]);
+            if (name && !/nối từ|đấu rank|copy link|gợi ý/i.test(name)) {
+                return name;
+            }
+        }
+    }
+
+    return '';
+}
+
 function markKillerWord(rawWord) {
     const normalized = normalizeText(rawWord);
     if (!isLikelyWord(normalized)) return;
 
     killerWords.add(normalized);
     killerWordCounts[normalized] = Number(killerWordCounts[normalized] || 0) + 1;
+    if (currentOpponentName) {
+        registerOpponentKillerWord(currentOpponentName, normalized);
+    }
     persistLearnedState();
     refreshKillerListUI();
     console.log(`⭐ Đã lưu từ giết chết: ${normalized} (x${killerWordCounts[normalized]})`);
@@ -197,6 +297,33 @@ function isLikelyWord(text) {
     return /[a-zA-ZÀ-ỹ]/.test(text);
 }
 
+function isLikelyGamePage() {
+    const path = (window.location.pathname || '').toLowerCase();
+    const hasInput = !!document.querySelector('input.input.is-large, input[type="text"], textarea');
+    const hasWordLane = !!document.querySelector('.is-flex.is-flex-wrap-nowrap');
+
+    // Khóa cứng trang xếp hạng/trang chủ để không bắt nhầm chữ UI.
+    if (/xep-hang|bang-xep-hang|leaderboard/.test(path)) return false;
+
+    const isHomeLikePath = /trang-chu|home/.test(path);
+    if (isHomeLikePath && !hasInput) return false;
+
+    return hasInput || hasWordLane;
+}
+
+function renderHomeReviewMode() {
+    const listDiv = document.getElementById('suggestion-list');
+    const metaDiv = document.getElementById('difficulty-meta');
+    if (!listDiv || !metaDiv) return;
+
+    isHomeReviewMode = true;
+    lastRenderedWord = '';
+    latestDetectedWord = '';
+    metaDiv.innerHTML = 'Chế độ xem lại: vào trận để bật gợi ý theo từ đối thủ.';
+    listDiv.innerHTML = '<div class="no-word">Đang ở trang chủ/xếp hạng. Mục Xem lại nhanh vẫn hoạt động.</div>';
+    refreshReviewInfoUI();
+}
+
 // 1. Load từ điển từ file JSON
 fetch(chrome.runtime.getURL('dictionary.json'))
     .then(res => res.json())
@@ -217,12 +344,17 @@ helperBox.id = 'noitu-helper-box';
 helperBox.innerHTML = `
     <div class="helper-header">💡 Gợi ý cho bạn</div>
     <div id="difficulty-meta" class="difficulty-meta">Độ khó từ hiện tại: --%</div>
+    <div id="review-info" class="review-info">Đang tổng hợp dữ liệu...</div>
     <div class="helper-actions">
         <button id="mark-killer-btn" class="helper-action-btn" type="button">⭐ Lưu từ này</button>
         <button id="toggle-killer-list-btn" class="helper-action-btn helper-action-secondary" type="button">📚 Từ đã lưu (0)</button>
+        <button id="toggle-opponent-review-btn" class="helper-action-btn helper-action-secondary" type="button">🧠 Xem lại đối thủ</button>
     </div>
     <div id="killer-list-panel" class="killer-list-panel" style="display:none;">
         <div id="killer-list-content" class="killer-list-content">Chưa có từ nào được lưu.</div>
+    </div>
+    <div id="opponent-review-panel" class="opponent-review-panel" style="display:none;">
+        <div id="opponent-review-content" class="opponent-review-content">Chưa có dữ liệu đối thủ.</div>
     </div>
     <div id="suggestion-list">Đang đợi đối thủ...</div>
 `;
@@ -230,8 +362,92 @@ document.body.appendChild(helperBox);
 
 const markKillerBtn = document.getElementById('mark-killer-btn');
 const toggleKillerListBtn = document.getElementById('toggle-killer-list-btn');
+const toggleOpponentReviewBtn = document.getElementById('toggle-opponent-review-btn');
 const killerListPanel = document.getElementById('killer-list-panel');
 const killerListContent = document.getElementById('killer-list-content');
+const opponentReviewPanel = document.getElementById('opponent-review-panel');
+const opponentReviewContent = document.getElementById('opponent-review-content');
+const reviewInfoDiv = document.getElementById('review-info');
+
+function getTotalKillerHits() {
+    return Object.values(killerWordCounts).reduce((sum, n) => sum + Number(n || 0), 0);
+}
+
+function getOpponentTotalWordCount(profile) {
+    if (!profile || !profile.playedWords) return 0;
+    return Object.values(profile.playedWords).reduce((sum, n) => sum + Number(n || 0), 0);
+}
+
+function getSortedOpponentNames() {
+    return Object.keys(opponentProfiles).sort((a, b) => {
+        const aCount = getOpponentTotalWordCount(opponentProfiles[a]);
+        const bCount = getOpponentTotalWordCount(opponentProfiles[b]);
+        if (aCount !== bCount) return bCount - aCount;
+        return a.localeCompare(b, 'vi');
+    });
+}
+
+function getTopStartKeysByOpponent(opponentName, limit = 3) {
+    const profile = opponentProfiles[opponentName];
+    if (!profile || !profile.startKeys) return [];
+
+    return Object.entries(profile.startKeys)
+        .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))
+        .slice(0, limit);
+}
+
+function refreshReviewInfoUI() {
+    if (!reviewInfoDiv) return;
+
+    const opponentNames = getSortedOpponentNames();
+    const opponentCount = opponentNames.length;
+    const topOpponent = opponentNames[0] || '';
+    const topOpponentPlayed = topOpponent ? getOpponentTotalWordCount(opponentProfiles[topOpponent]) : 0;
+    const activeOpponent = currentOpponentName || topOpponent;
+    const topKeys = activeOpponent ? getTopStartKeysByOpponent(activeOpponent, 3) : [];
+
+    const keyLine = topKeys.length > 0
+        ? topKeys.map(([k, n]) => `${k} (${n})`).join(' · ')
+        : 'Chưa có dữ liệu key';
+
+    reviewInfoDiv.innerHTML = `
+        <div class="review-title">Xem lại nhanh</div>
+        <div class="review-row">Đối thủ đã học: <b>${opponentCount}</b></div>
+        <div class="review-row">Đối thủ gần nhất: <b>${activeOpponent || 'Chưa có'}</b></div>
+        <div class="review-row">Từ giết đã lưu: <b>${killerWords.size}</b> · Lượt bị giết: <b>${getTotalKillerHits()}</b></div>
+        <div class="review-row">Key đối thủ hay mở: <b>${keyLine}</b></div>
+        ${topOpponent ? `<div class="review-sub">Top đối thủ: ${topOpponent} (${topOpponentPlayed} lượt)</div>` : ''}
+    `;
+}
+
+function refreshOpponentReviewUI() {
+    if (!opponentReviewContent) return;
+
+    const opponentNames = getSortedOpponentNames();
+    if (opponentNames.length === 0) {
+        opponentReviewContent.innerHTML = 'Chưa có dữ liệu đối thủ.';
+        return;
+    }
+
+    const topList = opponentNames.slice(0, 6).map(name => {
+        const profile = opponentProfiles[name] || {};
+        const totalPlayed = getOpponentTotalWordCount(profile);
+        const topKeys = getTopStartKeysByOpponent(name, 3);
+        const keyLine = topKeys.length > 0
+            ? topKeys.map(([k, n]) => `${k} (${n})`).join(' · ')
+            : 'Chưa có key mạnh';
+
+        return `
+            <div class="op-row ${name === currentOpponentName ? 'op-row-active' : ''}">
+                <div class="op-name">${name}</div>
+                <div class="op-meta">Lượt ghi nhận: <b>${totalPlayed}</b></div>
+                <div class="op-meta">Key hay dùng: <b>${keyLine}</b></div>
+            </div>
+        `;
+    }).join('');
+
+    opponentReviewContent.innerHTML = topList;
+}
 
 function getSortedKillerWords() {
     return Array.from(killerWords).sort((a, b) => {
@@ -265,6 +481,8 @@ function refreshKillerListUI() {
         : '';
 
     killerListContent.innerHTML = `<div class="killer-list-chips">${chips}</div>${extra}`;
+    refreshReviewInfoUI();
+    refreshOpponentReviewUI();
 }
 
 if (toggleKillerListBtn) {
@@ -273,6 +491,15 @@ if (toggleKillerListBtn) {
         const isOpen = killerListPanel.style.display !== 'none';
         killerListPanel.style.display = isOpen ? 'none' : 'block';
         if (!isOpen) refreshKillerListUI();
+    });
+}
+
+if (toggleOpponentReviewBtn) {
+    toggleOpponentReviewBtn.addEventListener('click', () => {
+        if (!opponentReviewPanel) return;
+        const isOpen = opponentReviewPanel.style.display !== 'none';
+        opponentReviewPanel.style.display = isOpen ? 'none' : 'block';
+        if (!isOpen) refreshOpponentReviewUI();
     });
 }
 
@@ -297,9 +524,16 @@ if (markKillerBtn) {
 }
 
 refreshKillerListUI();
+refreshReviewInfoUI();
+refreshOpponentReviewUI();
 
 // 3. Hàm cập nhật danh sách gợi ý
 function showSuggestions(word) {
+    if (isHomeReviewMode) {
+        renderHomeReviewMode();
+        return;
+    }
+
     const normalized = normalizeText(word);
     const lastWord = normalized.split(' ').pop();
     const listDiv = document.getElementById('suggestion-list');
@@ -322,10 +556,11 @@ function showSuggestions(word) {
     const currentBranchCount = getBranchCountByNextKey(getNextKey(normalized));
     const currentKillerCount = getKillerCount(normalized);
     const isKillerWord = currentKillerCount > 0;
+    const opponentLabel = currentOpponentName ? ` · Đối thủ: <b>${currentOpponentName}</b>` : '';
     if (metaDiv) {
         metaDiv.innerHTML = isKillerWord
-            ? `Từ cần nối: <b>${lastWord}</b> · Nhánh tiếp: <b>${currentBranchCount}</b> · Độ khó: <b>${currentDifficulty}%</b> · <span class="killer-mark">⭐ Giết bạn x${currentKillerCount}</span>`
-            : `Từ cần nối: <b>${lastWord}</b> · Nhánh tiếp: <b>${currentBranchCount}</b> · Độ khó: <b>${currentDifficulty}%</b>`;
+            ? `Từ cần nối: <b>${lastWord}</b> · Nhánh tiếp: <b>${currentBranchCount}</b> · Độ khó: <b>${currentDifficulty}%</b>${opponentLabel} · <span class="killer-mark">⭐ Giết bạn x${currentKillerCount}</span>`
+            : `Từ cần nối: <b>${lastWord}</b> · Nhánh tiếp: <b>${currentBranchCount}</b> · Độ khó: <b>${currentDifficulty}%</b>${opponentLabel}`;
     }
 
     if (lastRenderedWord === lastWord) return;
@@ -334,10 +569,21 @@ function showSuggestions(word) {
     const suggestions = (vietnameseDict[lastWord] || []).slice();
 
     suggestions.sort((a, b) => {
-        const aKiller = killerWords.has(normalizeText(a)) ? 1 : 0;
-        const bKiller = killerWords.has(normalizeText(b)) ? 1 : 0;
+        const aNorm = normalizeText(a);
+        const bNorm = normalizeText(b);
+        const aNext = getNextKey(aNorm);
+        const bNext = getNextKey(bNorm);
+
+        const aOppStrength = getOpponentStrengthForKey(currentOpponentName, aNext);
+        const bOppStrength = getOpponentStrengthForKey(currentOpponentName, bNext);
+        // Ưu tiên từ khắc chế: ép đối thủ vào key mà họ ít dùng.
+        if (aOppStrength !== bOppStrength) return aOppStrength - bOppStrength;
+
+        const aKiller = killerWords.has(aNorm) ? 1 : 0;
+        const bKiller = killerWords.has(bNorm) ? 1 : 0;
         if (aKiller !== bKiller) return bKiller - aKiller;
-        return getDifficultyPercent(b) - getDifficultyPercent(a);
+
+        return getDifficultyPercent(bNorm) - getDifficultyPercent(aNorm);
     });
 
     listDiv.innerHTML = "";
@@ -349,11 +595,15 @@ function showSuggestions(word) {
         suggestions.slice(0, 10).forEach(s => {
             const difficulty = getDifficultyPercent(s);
             const killCount = getKillerCount(s);
+            const nextKey = getNextKey(s);
+            const opponentStrength = getOpponentStrengthForKey(currentOpponentName, nextKey);
+            const counterBadge = currentOpponentName ? `<span class="counter-badge" title="Đối thủ quen key này: ${opponentStrength}">khắc chế ${opponentStrength}</span>` : '';
             const killerBadge = killCount > 0 ? `<span class="killer-star" title="Từng giết bạn x${killCount}">⭐x${killCount}</span>` : '';
             const btn = document.createElement('button');
             btn.className = 'suggest-btn';
             btn.innerHTML = `
                 <span class="suggest-word">${killerBadge}${s}</span>
+                ${counterBadge}
                 <span class="suggest-diff ${getDifficultyClass(difficulty)}">${difficulty}%</span>
             `;
             btn.onclick = () => {
@@ -484,9 +734,7 @@ function getWordFromKnownSelectors() {
 
     const altSelectors = [
         '[class*="word"]',
-        '[class*="Word"]',
-        'h1',
-        'h2'
+        '[class*="Word"]'
     ];
 
     for (const selector of altSelectors) {
@@ -570,6 +818,22 @@ function updateFromPage() {
     lastUpdateAt = now;
 
     try {
+        if (!isLikelyGamePage()) {
+            renderHomeReviewMode();
+            return;
+        }
+
+        isHomeReviewMode = false;
+
+        const inferredOpponent = inferCurrentOpponentName();
+        if (inferredOpponent && inferredOpponent !== currentOpponentName) {
+            currentOpponentName = inferredOpponent;
+            persistLearnedState();
+            refreshReviewInfoUI();
+            refreshOpponentReviewUI();
+            console.log(`🧩 Nhận diện đối thủ: ${currentOpponentName}`);
+        }
+
         let source = "";
         let foundWord = getWordFromKnownSelectors();
 
@@ -601,6 +865,11 @@ function updateFromPage() {
         }
 
         latestDetectedWord = normalizeText(foundWord);
+        if (currentOpponentName && latestDetectedWord) {
+            registerOpponentWord(currentOpponentName, latestDetectedWord);
+            refreshReviewInfoUI();
+            refreshOpponentReviewUI();
+        }
         detectAndStoreLossKillerWord();
         registerLearnedWord(foundWord);
         showSuggestions(foundWord);
