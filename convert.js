@@ -7,6 +7,7 @@ const inputName = process.argv[2] || 'Viet39K.txt';
 const inputFile = path.join('vietnamese-wordlist-master', inputName);
 const outputFile = path.join(__dirname, 'dictionary.json');
 const customWordsFile = path.join(__dirname, 'custom_words.txt');
+const csvPattern = /^verb\..+\.csv$/i;
 
 // Bổ sung thủ công một số từ 2 chữ phổ biến để tăng vốn từ gợi ý.
 const extraTwoWordPhrases = [
@@ -154,11 +155,34 @@ function loadCustomPhrasesFromFile() {
         .filter(line => line && isTwoWordPhrase(line));
 }
 
+function loadPhrasesFromCsvFiles() {
+    const files = fs.readdirSync(__dirname).filter(name => csvPattern.test(name));
+    const phrases = [];
+
+    files.forEach(fileName => {
+        const filePath = path.join(__dirname, fileName);
+        const raw = fs.readFileSync(filePath, 'utf8');
+        const lines = raw.split(/\r?\n/).filter(Boolean);
+
+        lines.forEach(line => {
+            // CSV này chủ yếu là cụm từ ngăn bởi dấu phẩy, không có quote phức tạp.
+            const cells = line.split(',');
+            cells.forEach(cell => {
+                const phrase = normalizePhrase(cell);
+                if (phrase) phrases.push(phrase);
+            });
+        });
+    });
+
+    return { files, phrases };
+}
+
 try {
     const data = fs.readFileSync(path.join(__dirname, inputFile), 'utf8');
     const lines = data.split(/\r?\n/);
     const dictionary = {};
     const customPhrases = loadCustomPhrasesFromFile();
+    const csvData = loadPhrasesFromCsvFiles();
 
     lines.forEach(line => {
         const phrase = normalizePhrase(line);
@@ -177,11 +201,23 @@ try {
         addPhrase(dictionary, phrase);
     });
 
+    csvData.phrases.forEach(phrase => {
+        const derivedPhrases = getTwoWordPhrasesFromLine(phrase);
+        derivedPhrases.forEach(p => addPhrase(dictionary, p));
+    });
+
     Object.keys(dictionary).forEach(key => {
         dictionary[key].sort((a, b) => a.localeCompare(b, 'vi'));
     });
 
     fs.writeFileSync(outputFile, JSON.stringify(dictionary, null, 2), 'utf8');
+    console.log(`✅ Đã tạo dictionary 2 chữ thành công sang ${outputFile}`);
+    console.log(`📦 CSV đã nạp: ${csvData.files.length} file`);
+    console.log(`📦 Cụm từ đọc từ CSV: ${csvData.phrases.length}`);
+    console.log(`📦 Từ custom thêm vào: ${customPhrases.length}`);
+    console.log(`📊 Giữ lại: ${filterStats.kept}`);
+    console.log(`🚫 Loại tỉnh/thành: ${filterStats.removedProvince}`);
+    console.log(`🚫 Loại từ lai Anh: ${filterStats.removedForeign}`);
 } catch (err) {
     console.error(`Lỗi rồi: Không đọc được file đầu vào ${inputFile}.`, err);
 }
