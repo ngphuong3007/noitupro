@@ -8552,9 +8552,11 @@
     "cầm viên"
   ],
   "xít": [
+    "xít hóa",
     "xít rịt"
   ],
   "nhâu": [
+    "nhâu nhâu",
     "nhâu nhấu"
   ],
   "mướt": [
@@ -21783,6 +21785,7 @@
     "hỏa đàn",
     "hỏa điểm",
     "hỏa ngục",
+    "hỏa táng",
     "hỏa thiêu",
     "hỏa tinh",
     "hỏa tuyến",
@@ -25843,9 +25846,6 @@
     "lo buồn",
     "lo liệu",
     "lo sợ"
-  ],
-  "hỏa": [
-    "hỏa táng"
   ],
   "lọ": [
     "lọ lem"
@@ -30433,9 +30433,6 @@
     "nhập quỹ",
     "nhập siêu"
   ],
-  "nhâu": [
-    "nhâu nhâu"
-  ],
   "nhậu": [
     "nhậu nhẹt"
   ],
@@ -31442,9 +31439,6 @@
     "o oe",
     "o xi",
     "o xít"
-  ],
-  "xít": [
-    "xít hóa"
   ],
   "ò": [
     "ò e"
