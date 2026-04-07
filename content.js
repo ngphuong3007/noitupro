@@ -17,9 +17,21 @@ let lastLossStateAt = 0;
 let lastLossWord = "";
 let lastLossWordAt = 0;
 let isHomeReviewMode = false;
+let nonGameDetectStreak = 0;
+let currentMatchOpponentWords = {};
+let currentMatchMyWords = {};
+let recentLossTopWords = [];
+let recentWinTopWords = [];
+let recentLossWordSet = new Set();
+let recentWinWordSet = new Set();
+let lastMatchResultAt = 0;
+let isInputTrackingAttached = false;
 const HELPER_COLLAPSE_KEY = 'noitu_helper_collapsed';
 
-const TRUSTED_LEARN_SOURCES = new Set(['known-selectors', 'recent-chips', 'input-value']);
+const TRUSTED_LEARN_SOURCES = new Set(['known-selectors', 'recent-chips']);
+const ALLOW_INPUT_FALLBACK_DETECTION = false;
+const NON_GAME_STREAK_THRESHOLD = 3;
+const MATCH_RESULT_COOLDOWN_MS = 9000;
 const BLOCKED_UI_TOKENS = new Set([
     'đấu', 'xếp', 'hạng', 'rank', 'leaderboard', 'ngẫu', 'nhiên', 'mở', 'rộng',
     'chữ', 'nghĩa', 'copy', 'link', 'tháng', 'này', 'vị', 'trí', 'thắng', 'điểm'
@@ -33,12 +45,16 @@ function loadLearnedState() {
         const rawDict = localStorage.getItem('noitu_learned_dictionary');
         const rawOppProfiles = localStorage.getItem('noitu_opponent_profiles');
         const rawCurrentOpponent = localStorage.getItem('noitu_current_opponent');
+        const rawRecentLoss = localStorage.getItem('noitu_recent_loss_top_words');
+        const rawRecentWin = localStorage.getItem('noitu_recent_win_top_words');
 
         const hardList = rawHard ? JSON.parse(rawHard) : [];
         const killerList = rawKiller ? JSON.parse(rawKiller) : [];
         const killerCountsObj = rawKillerCounts ? JSON.parse(rawKillerCounts) : {};
         const dictObj = rawDict ? JSON.parse(rawDict) : {};
         const opponentObj = rawOppProfiles ? JSON.parse(rawOppProfiles) : {};
+        const recentLossList = rawRecentLoss ? JSON.parse(rawRecentLoss) : [];
+        const recentWinList = rawRecentWin ? JSON.parse(rawRecentWin) : [];
 
         hardList.forEach(w => {
             const n = normalizeText(w);
@@ -54,6 +70,9 @@ function loadLearnedState() {
 
         learnedDictionary = dictObj && typeof dictObj === 'object' ? dictObj : {};
         opponentProfiles = opponentObj && typeof opponentObj === 'object' ? opponentObj : {};
+        recentLossTopWords = Array.isArray(recentLossList) ? recentLossList.map(normalizeText).filter(Boolean) : [];
+        recentWinTopWords = Array.isArray(recentWinList) ? recentWinList.map(normalizeText).filter(Boolean) : [];
+        refreshRecentWordSets();
         currentOpponentName = normalizePlayerName(rawCurrentOpponent || '');
         sanitizeLearnedData();
     } catch (err) {
@@ -61,8 +80,29 @@ function loadLearnedState() {
         killerWordCounts = {};
         learnedDictionary = {};
         opponentProfiles = {};
+        recentLossTopWords = [];
+        recentWinTopWords = [];
+        refreshRecentWordSets();
         currentOpponentName = '';
     }
+}
+
+function refreshRecentWordSets() {
+    recentLossWordSet = new Set((recentLossTopWords || []).map(normalizeText).filter(Boolean));
+    recentWinWordSet = new Set((recentWinTopWords || []).map(normalizeText).filter(Boolean));
+}
+
+function getTopWordsFromCounter(counterObj, limit = 6) {
+    return Object.entries(counterObj || {})
+        .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))
+        .slice(0, limit)
+        .map(([word]) => normalizeText(word))
+        .filter(Boolean);
+}
+
+function resetCurrentMatchTracking() {
+    currentMatchOpponentWords = {};
+    currentMatchMyWords = {};
 }
 
 function isUiNoiseWord(rawWord) {
@@ -72,9 +112,10 @@ function isUiNoiseWord(rawWord) {
     const tokens = normalized.split(' ').filter(Boolean);
     if (tokens.length === 0) return true;
 
-    // Nếu cụm phần lớn là token UI thì bỏ.
+    // Nếu cụm dài và phần lớn là token UI thì bỏ.
+    // Không áp điều kiện này cho cụm 2 từ để tránh chặn nhầm từ hợp lệ như "này nọ".
     const blockedCount = tokens.filter(t => BLOCKED_UI_TOKENS.has(t)).length;
-    if (blockedCount > 0 && blockedCount >= Math.ceil(tokens.length / 2)) return true;
+    if (tokens.length >= 3 && blockedCount >= Math.ceil(tokens.length / 2)) return true;
 
     // Chặn một số cụm đặc trưng của trang chủ/xếp hạng.
     if (/đấu xếp hạng|xếp hạng|đấu rank|copy link|ngẫu nhiên|mở rộng|chữ nghĩa/.test(normalized)) {
@@ -129,6 +170,8 @@ function persistLearnedState() {
         localStorage.setItem('noitu_learned_dictionary', JSON.stringify(learnedDictionary));
         localStorage.setItem('noitu_opponent_profiles', JSON.stringify(opponentProfiles));
         localStorage.setItem('noitu_current_opponent', currentOpponentName || '');
+        localStorage.setItem('noitu_recent_loss_top_words', JSON.stringify(recentLossTopWords));
+        localStorage.setItem('noitu_recent_win_top_words', JSON.stringify(recentWinTopWords));
     } catch (err) {
         console.warn('Không lưu được dữ liệu từ đã học:', err);
     }
@@ -222,20 +265,46 @@ function getMoveAnalysis(moveText, opponentName) {
             risk: 4,
             survivalRate: 100,
             opponentMoveCount: 0,
+            opponentRedupCount: 0,
+            opponentRedupRate: 0,
+            twoStepTrapRate: 0,
             bestCounterReplies: 0,
             reason: 'Khóa nhánh đối thủ ngay lượt tới'
         };
     }
 
+    const opponentRedupCount = opponentMoves.filter(isSimpleReduplication).length;
+    const opponentRedupRate = Math.round((opponentRedupCount / opponentMoves.length) * 100);
+
     const simulated = opponentMoves.map(oppMove => {
         const myReplyKey = getNextKey(oppMove);
         const myReplyCount = getBranchCountByNextKey(myReplyKey);
         const oppFavForReplyKey = getOpponentStrengthForKey(opponentName, myReplyKey);
+
+        let twoStepTrapRate = 0;
+        const myReplies = (vietnameseDict[myReplyKey] || []).slice(0, 8);
+        if (myReplies.length === 0) {
+            twoStepTrapRate = 100;
+        } else {
+            let trapReplies = 0;
+            myReplies.forEach(myReply => {
+                const oppSecondKey = getNextKey(myReply);
+                const oppSecondMoves = (vietnameseDict[oppSecondKey] || []).slice(0, 8);
+                const canLockMe = oppSecondMoves.some(oppSecondMove => {
+                    const myFinalKey = getNextKey(oppSecondMove);
+                    return getBranchCountByNextKey(myFinalKey) === 0;
+                });
+                if (canLockMe) trapReplies += 1;
+            });
+            twoStepTrapRate = Math.round((trapReplies / myReplies.length) * 100);
+        }
+
         return {
             oppMove,
             myReplyKey,
             myReplyCount,
-            oppFavForReplyKey
+            oppFavForReplyKey,
+            twoStepTrapRate
         };
     });
 
@@ -249,6 +318,7 @@ function getMoveAnalysis(moveText, opponentName) {
     const survivalRate = Math.round((survivable / sampled.length) * 100);
     const bestCounterReplies = sampled[0].myReplyCount;
     const strongestFav = sampled[0].oppFavForReplyKey;
+    const twoStepTrapRate = Math.round(sampled.reduce((sum, item) => sum + Number(item.twoStepTrapRate || 0), 0) / sampled.length);
 
     const pressureFromBestCounter = bestCounterReplies === 0
         ? 68
@@ -256,9 +326,11 @@ function getMoveAnalysis(moveText, opponentName) {
     const pressureFromOptions = Math.log2(opponentMoves.length + 1) * 8;
     const pressureFromOpponentHabit = Math.log2(strongestFav + 1) * 12;
     const pressureFromLowSurvival = (100 - survivalRate) * 0.35;
+    const pressureFromRedup = opponentRedupRate * 0.12;
+    const pressureFromTwoStepTrap = twoStepTrapRate * 0.2;
 
     const risk = Math.round(clamp(
-        pressureFromBestCounter + pressureFromOptions + pressureFromOpponentHabit + pressureFromLowSurvival,
+        pressureFromBestCounter + pressureFromOptions + pressureFromOpponentHabit + pressureFromLowSurvival + pressureFromRedup + pressureFromTwoStepTrap,
         4,
         99
     ));
@@ -266,8 +338,12 @@ function getMoveAnalysis(moveText, opponentName) {
     let reason = `Đối thủ có ${opponentMoves.length} nhánh phản`; 
     if (bestCounterReplies === 0) {
         reason = 'Có nước phản đòn khóa bạn';
+    } else if (twoStepTrapRate >= 55) {
+        reason = `Nguy cơ bẫy 2 bước cao (${twoStepTrapRate}%)`;
     } else if (survivalRate <= 35) {
         reason = `Tỷ lệ sống thấp (${survivalRate}%)`;
+    } else if (opponentRedupRate >= 40) {
+        reason = `Nước phản có nhiều từ láy (${opponentRedupRate}%)`;
     } else if (strongestFav >= 4) {
         reason = 'Đối thủ quen key phản đòn này';
     }
@@ -276,6 +352,9 @@ function getMoveAnalysis(moveText, opponentName) {
         risk,
         survivalRate,
         opponentMoveCount: opponentMoves.length,
+        opponentRedupCount,
+        opponentRedupRate,
+        twoStepTrapRate,
         bestCounterReplies,
         reason
     };
@@ -289,6 +368,41 @@ function getRiskClass(percent) {
     if (percent >= 70) return 'risk-high';
     if (percent >= 40) return 'risk-mid';
     return 'risk-low';
+}
+
+function getKillPotentialPercent(analysis, nextKey, opponentName) {
+    if (!analysis) return 0;
+    if (isCheckmateMove(analysis)) return 100;
+
+    const opponentMoveCount = Number(analysis.opponentMoveCount || 0);
+    const survivalRate = Number(analysis.survivalRate || 0);
+    const risk = Number(analysis.risk || 0);
+    const opponentStrength = getOpponentStrengthForKey(opponentName, nextKey);
+
+    const trapPressure = clamp(100 - Math.log2(opponentMoveCount + 1) * 26, 10, 92);
+    const survivalBonus = clamp(survivalRate, 0, 100);
+    const safetyBonus = clamp(100 - risk, 0, 100);
+    const unfamiliarityBonus = clamp(100 - Math.log2(opponentStrength + 1) * 30, 25, 100);
+
+    return Math.round(clamp(
+        trapPressure * 0.5 + survivalBonus * 0.2 + safetyBonus * 0.15 + unfamiliarityBonus * 0.15,
+        5,
+        99
+    ));
+}
+
+function getKillClass(percent) {
+    if (percent >= 70) return 'kill-high';
+    if (percent >= 45) return 'kill-mid';
+    return 'kill-low';
+}
+
+function isSimpleReduplication(text) {
+    const normalized = normalizeText(text);
+    if (!normalized) return false;
+    const parts = normalized.split(' ').filter(Boolean);
+    if (parts.length !== 2) return false;
+    return parts[0] === parts[1];
 }
 
 function normalizePlayerName(name) {
@@ -326,6 +440,8 @@ function registerOpponentWord(opponentName, rawWord) {
     const profile = getOrCreateOpponentProfile(normalizedName);
     if (!profile) return;
 
+    currentMatchOpponentWords[normalizedWord] = Number(currentMatchOpponentWords[normalizedWord] || 0) + 1;
+
     profile.playedWords[normalizedWord] = Number(profile.playedWords[normalizedWord] || 0) + 1;
 
     const startKey = normalizedWord.split(' ')[0] || '';
@@ -334,6 +450,25 @@ function registerOpponentWord(opponentName, rawWord) {
     }
 
     persistLearnedState();
+}
+
+function registerMyPlayedWord(rawWord) {
+    const normalizedWord = normalizeText(rawWord);
+    if (!isLikelyWord(normalizedWord) || isUiNoiseWord(normalizedWord)) return;
+    currentMatchMyWords[normalizedWord] = Number(currentMatchMyWords[normalizedWord] || 0) + 1;
+}
+
+function attachInputTrackingOnce() {
+    if (isInputTrackingAttached) return;
+    const input = document.querySelector('input.input.is-large, input[type="text"], textarea');
+    if (!input) return;
+
+    input.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter') return;
+        registerMyPlayedWord(input.value || '');
+    });
+
+    isInputTrackingAttached = true;
 }
 
 function registerOpponentKillerWord(opponentName, rawWord) {
@@ -366,7 +501,12 @@ function inferCurrentOpponentName() {
         const match = text.match(/^(.{2,40})\s+đang trả lời$/i);
         if (match && match[1]) {
             const name = normalizePlayerName(match[1]);
-            if (name && !/nối từ|đấu rank|copy link|gợi ý/i.test(name)) {
+            if (
+                name &&
+                !/^(bạn|you|me|tôi|minh|mình)$/i.test(name) &&
+                !/\((bạn|you|me)\)/i.test(name) &&
+                !/nối từ|đấu rank|copy link|gợi ý/i.test(name)
+            ) {
                 return name;
             }
         }
@@ -461,13 +601,20 @@ function isLikelyGamePage() {
     const hasInput = !!document.querySelector('input.input.is-large, input[type="text"], textarea');
     const hasWordLane = !!document.querySelector('.is-flex.is-flex-wrap-nowrap');
 
-    // Khóa cứng trang xếp hạng/trang chủ để không bắt nhầm chữ UI.
-    if (/xep-hang|bang-xep-hang|leaderboard/.test(path)) return false;
+    // Một số trận rank vẫn nằm trong đường dẫn có chứa "xep-hang",
+    // nên không khóa cứng theo path nữa; ưu tiên nhận diện theo dấu hiệu UI trận.
+    const hasLiveMatchHint = hasInput || hasWordLane;
+    if (hasLiveMatchHint) return true;
 
     const isHomeLikePath = /trang-chu|home/.test(path);
-    if (isHomeLikePath && !hasInput) return false;
+    if (isHomeLikePath && !hasInput && !hasWordLane) return false;
 
-    return hasInput || hasWordLane;
+    return false;
+}
+
+function isExplicitNonGamePath() {
+    const path = (window.location.pathname || '').toLowerCase();
+    return /trang-chu|home/.test(path);
 }
 
 function renderHomeReviewMode() {
@@ -765,7 +912,10 @@ function showSuggestions(word) {
 
     const normalized = normalizeText(word);
     if (isUiNoiseWord(normalized)) {
-        renderHomeReviewMode();
+        const listDiv = document.getElementById('suggestion-list');
+        const metaDiv = document.getElementById('difficulty-meta');
+        if (metaDiv) metaDiv.innerHTML = `Độ khó từ hiện tại: --%`;
+        if (listDiv) listDiv.innerHTML = `<div class="no-word">Đang đợi từ đối thủ...</div>`;
         return;
     }
     const lastWord = normalized.split(' ').pop();
@@ -828,6 +978,25 @@ function showSuggestions(word) {
         // Ưu tiên tuyệt đối nước kết liễu (đối thủ hết nhánh ngay).
         if (aMate !== bMate) return bMate - aMate;
 
+        const aRecentLoss = recentLossWordSet.has(aNorm) ? 1 : 0;
+        const bRecentLoss = recentLossWordSet.has(bNorm) ? 1 : 0;
+        // Né nhóm từ từng khiến bạn thua ở trận gần nhất.
+        if (aRecentLoss !== bRecentLoss) return aRecentLoss - bRecentLoss;
+
+        const aRecentWin = recentWinWordSet.has(aNorm) ? 1 : 0;
+        const bRecentWin = recentWinWordSet.has(bNorm) ? 1 : 0;
+        // Đẩy nhóm từ từng giúp bạn thắng ở trận gần nhất.
+        if (aRecentWin !== bRecentWin) return bRecentWin - aRecentWin;
+
+        const aNextRedupRate = Number(aAnalysis.opponentRedupRate || 0);
+        const bNextRedupRate = Number(bAnalysis.opponentRedupRate || 0);
+        // Ưu tiên nhánh mà nước phản của đối thủ ít từ láy lặp hơn.
+        if (aNextRedupRate !== bNextRedupRate) return aNextRedupRate - bNextRedupRate;
+
+        const aKillPotential = getKillPotentialPercent(aAnalysis, aNext, currentOpponentName);
+        const bKillPotential = getKillPotentialPercent(bAnalysis, bNext, currentOpponentName);
+        if (aKillPotential !== bKillPotential) return bKillPotential - aKillPotential;
+
         const aRisk = aAnalysis.risk;
         const bRisk = bAnalysis.risk;
         if (aRisk !== bRisk) return aRisk - bRisk;
@@ -841,21 +1010,40 @@ function showSuggestions(word) {
     });
 
     listDiv.innerHTML = "";
+
+    const displaySuggestions = suggestions;
     
-    if (suggestions.length === 0) {
+    if (displaySuggestions.length === 0) {
         listDiv.innerHTML = `<div class="no-word">Không tìm thấy từ nối cho "${lastWord}"</div>`;
     } else {
         // Lấy tối đa 10 từ gợi ý và hiển thị mức độ khó.
-        suggestions.slice(0, 10).forEach(s => {
+        displaySuggestions.slice(0, 10).forEach(s => {
             const difficulty = getDifficultyPercent(s);
             const killCount = getKillerCount(s);
             const nextKey = getNextKey(s);
             const opponentStrength = getOpponentStrengthForKey(currentOpponentName, nextKey);
             const analysis = getCachedAnalysis(s);
             const counterRisk = analysis.risk;
+            const killPotential = getKillPotentialPercent(analysis, nextKey, currentOpponentName);
+            const nextRedupRate = Number(analysis.opponentRedupRate || 0);
+            const nextRedupCount = Number(analysis.opponentRedupCount || 0);
+            const twoStepTrapRate = Number(analysis.twoStepTrapRate || 0);
+            const normalizedSuggestion = normalizeText(s);
+            const inRecentLoss = recentLossWordSet.has(normalizedSuggestion);
+            const inRecentWin = recentWinWordSet.has(normalizedSuggestion);
             const counterBadge = currentOpponentName ? `<span class="counter-badge" title="Đối thủ quen key này: ${opponentStrength}">khắc chế ${opponentStrength}</span>` : '';
             const killerBadge = killCount > 0 ? `<span class="killer-star" title="Từng giết bạn x${killCount}">⭐x${killCount}</span>` : '';
             const mateBadge = isCheckmateMove(analysis) ? '<span class="mate-badge" title="Đối thủ không còn nhánh phản">KẾT LIỄU</span>' : '';
+            const redupBadge = nextRedupRate > 0
+                ? `<span class="redup-badge" title="Trong nhánh phản của đối thủ có ${nextRedupCount} từ láy lặp">láy sau ${nextRedupRate}%</span>`
+                : '';
+            const trapBadge = twoStepTrapRate >= 30
+                ? `<span class="trap-badge ${twoStepTrapRate >= 60 ? 'trap-high' : 'trap-mid'}" title="Nguy cơ bị khóa ở 2 lượt kế: ${twoStepTrapRate}%">bẫy 2 bước ${twoStepTrapRate}%</span>`
+                : '';
+            const memoryBadge = inRecentLoss
+                ? '<span class="memory-badge mem-loss" title="Trận gần nhất: từ này thuộc nhóm làm bạn thua">né (trận thua)</span>'
+                : (inRecentWin ? '<span class="memory-badge mem-win" title="Trận gần nhất: từ này thuộc nhóm giúp bạn thắng">đẩy (trận thắng)</span>' : '');
+            const killBadge = `<span class="kill-badge ${getKillClass(killPotential)}" title="Tỉ lệ có thể kết liễu sớm: ${killPotential}%">giết ${killPotential}%</span>`;
             const btn = document.createElement('button');
             btn.className = 'suggest-btn';
             btn.innerHTML = `
@@ -865,12 +1053,17 @@ function showSuggestions(word) {
                 </span>
                 <span class="suggest-tags">
                     ${mateBadge}
+                    ${memoryBadge}
+                    ${redupBadge}
+                    ${trapBadge}
+                    ${killBadge}
                     ${counterBadge}
                     <span class="risk-badge ${getRiskClass(counterRisk)}" title="Rủi ro phản đòn: ${counterRisk}%">rủi ro ${counterRisk}%</span>
                     <span class="suggest-diff ${getDifficultyClass(difficulty)}">${difficulty}%</span>
                 </span>
             `;
             btn.onclick = () => {
+                registerMyPlayedWord(s);
                 const input = document.querySelector('input.input.is-large, input[type="text"], textarea');
                 if (input) {
                     input.value = s;
@@ -950,6 +1143,34 @@ function detectAndStoreLossKillerWord() {
     markKillerWord(latestDetectedWord);
     lastLossWord = latestDetectedWord;
     lastLossWordAt = now;
+}
+
+function detectAndStoreRecentMatchResult() {
+    const now = Date.now();
+    if (now - lastMatchResultAt < MATCH_RESULT_COOLDOWN_MS) return;
+
+    const candidates = collectStatusTextCandidates();
+    const hasLoss = candidates.some(t => isLossText(t));
+    const hasWin = candidates.some(t => isWinText(t));
+    if (!hasLoss && !hasWin) return;
+    if (hasLoss && hasWin) return;
+
+    if (hasLoss) {
+        const topLossWords = getTopWordsFromCounter(currentMatchOpponentWords, 6);
+        recentLossTopWords = topLossWords.length > 0
+            ? topLossWords
+            : (latestDetectedWord ? [normalizeText(latestDetectedWord)] : []);
+        refreshRecentWordSets();
+        console.log(`📉 Top từ làm bạn thua (trận gần nhất): ${recentLossTopWords.join(' · ') || 'không có'}`);
+    } else {
+        recentWinTopWords = getTopWordsFromCounter(currentMatchMyWords, 6);
+        refreshRecentWordSets();
+        console.log(`📈 Top từ giúp bạn thắng (trận gần nhất): ${recentWinTopWords.join(' · ') || 'không có'}`);
+    }
+
+    persistLearnedState();
+    resetCurrentMatchTracking();
+    lastMatchResultAt = now;
 }
 
 function getWordFromInputValue() {
@@ -1082,12 +1303,19 @@ function updateFromPage() {
     lastUpdateAt = now;
 
     try {
-        if (!isLikelyGamePage()) {
-            renderHomeReviewMode();
+        const gameLike = isLikelyGamePage();
+        if (!gameLike) {
+            nonGameDetectStreak += 1;
+            if (isExplicitNonGamePath() || nonGameDetectStreak >= NON_GAME_STREAK_THRESHOLD) {
+                renderHomeReviewMode();
+            }
             return;
         }
 
+        nonGameDetectStreak = 0;
         isHomeReviewMode = false;
+        attachInputTrackingOnce();
+        detectAndStoreRecentMatchResult();
 
         const inferredOpponent = inferCurrentOpponentName();
         if (inferredOpponent && inferredOpponent !== currentOpponentName) {
@@ -1108,7 +1336,7 @@ function updateFromPage() {
             if (foundWord) source = "recent-chips";
         }
 
-        if (!foundWord) {
+        if (!foundWord && ALLOW_INPUT_FALLBACK_DETECTION) {
             foundWord = getWordFromInputValue();
             if (foundWord) source = "input-value";
         }
@@ -1131,7 +1359,7 @@ function updateFromPage() {
         latestDetectedWord = normalizeText(foundWord);
         if (isUiNoiseWord(latestDetectedWord)) {
             latestDetectedWord = '';
-            renderHomeReviewMode();
+            showSuggestions('');
             return;
         }
 

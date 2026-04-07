@@ -427,6 +427,83 @@
     border: 1px solid #fca5a5;
 }
 
+.kill-badge {
+    font-size: 10px;
+    font-weight: 700;
+    border-radius: 5px;
+    padding: 2px 6px;
+    white-space: nowrap;
+}
+
+.kill-low {
+    background: #f8fafc;
+    color: #475569;
+    border: 1px solid #cbd5e1;
+}
+
+.kill-mid {
+    background: #fff7ed;
+    color: #c2410c;
+    border: 1px solid #fdba74;
+}
+
+.kill-high {
+    background: #ecfdf5;
+    color: #047857;
+    border: 1px solid #86efac;
+}
+
+.redup-badge {
+    font-size: 10px;
+    font-weight: 700;
+    border-radius: 5px;
+    padding: 2px 6px;
+    white-space: nowrap;
+    background: #f8fafc;
+    color: #475569;
+    border: 1px solid #cbd5e1;
+}
+
+.trap-badge {
+    font-size: 10px;
+    font-weight: 700;
+    border-radius: 5px;
+    padding: 2px 6px;
+    white-space: nowrap;
+}
+
+.trap-mid {
+    background: #fff7ed;
+    color: #c2410c;
+    border: 1px solid #fdba74;
+}
+
+.trap-high {
+    background: #fef2f2;
+    color: #b91c1c;
+    border: 1px solid #fca5a5;
+}
+
+.memory-badge {
+    font-size: 10px;
+    font-weight: 700;
+    border-radius: 5px;
+    padding: 2px 6px;
+    white-space: nowrap;
+}
+
+.mem-loss {
+    background: #fef2f2;
+    color: #b91c1c;
+    border: 1px solid #fca5a5;
+}
+
+.mem-win {
+    background: #ecfdf5;
+    color: #047857;
+    border: 1px solid #86efac;
+}
+
 /* ─── Difficulty badges ─── */
 .suggest-diff {
     font-size: 10.5px;

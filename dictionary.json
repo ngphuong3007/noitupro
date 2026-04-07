@@ -11606,7 +11606,7 @@
     "ra quân",
     "ra rả",
     "ra ràng",
-    "ra rià",
+    "ra rìa",
     "ra riêng",
     "ra róc",
     "ra rối",
@@ -11639,6 +11639,14 @@
     "ra viện",
     "ra xa",
     "ra yêu"
+  ],
+  "huyệt": [
+    "huyệt đạo",
+    "huyệt mộ"
+  ],
+  "nần": [
+    "nần nẫn",
+    "nần nghệ"
   ],
   "chắp": [
     "chắp chảnh",
@@ -17644,7 +17652,17 @@
     "dâu tằm",
     "dâu tây"
   ],
+  "dũa": [
+    "dũa dao",
+    "dũa gỗ",
+    "dũa móng",
+    "dũa sắt"
+  ],
+  "rích": [
+    "rích rích"
+  ],
   "dầu": [
+    "dầu luyn",
     "dầu ăn",
     "dầu bạc",
     "dầu cá",
@@ -21677,7 +21695,9 @@
     "đi xoay",
     "đi xuồng",
     "đi xuống",
-    "đi xuyên"
+    "đi xuyên",
+    "đi học",
+    "đi bão"
   ],
   "đì": [
     "đì đà",
@@ -35706,7 +35726,8 @@
   ],
   "mút": [
     "mút chìa",
-    "mút ra"
+    "mút ra",
+    "mút xốp"
   ],
   "mưa": [
     "mưa bay",
@@ -35797,7 +35818,12 @@
     "mưu trưởng"
   ],
   "ná": [
-    "ná cao"
+    "ná cao",
+    "ná thở",
+    "ná ná"
+  ],
+  "nhó": [
+    "nhó đông"
   ],
   "nạ": [
     "nạ dòng",
