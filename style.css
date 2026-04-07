@@ -27,14 +27,79 @@
     overflow: hidden;
 }
 
+#noitu-helper-box.collapsed {
+    width: 46px;
+    height: 46px;
+    border-radius: 12px;
+    background: #ffffff;
+    border: 1px solid #dbe4ef;
+    box-shadow: 0 10px 20px rgba(26, 26, 46, 0.18);
+}
+
+#noitu-helper-box.collapsed .helper-content {
+    display: none;
+}
+
+#noitu-helper-box.collapsed .helper-header {
+    height: 46px;
+    padding: 0;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    border-bottom: 0;
+    position: relative;
+}
+
+#noitu-helper-box.collapsed .helper-title {
+    display: none;
+}
+
+#noitu-helper-box.collapsed .helper-header::before {
+    content: "💡";
+    font-size: 20px;
+    line-height: 1;
+}
+
+#noitu-helper-box.collapsed .toggle-collapse-btn {
+    display: none;
+}
+
 /* ─── Header ─── */
 .helper-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     padding: 10px 12px;
     font-weight: 800;
     font-size: 16px;
     color: var(--nt-ink);
     border-bottom: 1px solid var(--nt-border);
     letter-spacing: -0.2px;
+}
+
+.helper-title {
+    line-height: 1.2;
+}
+
+.toggle-collapse-btn {
+    border: 1px solid var(--nt-border);
+    background: #fff;
+    color: var(--nt-muted);
+    border-radius: 6px;
+    width: 24px;
+    height: 24px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.toggle-collapse-btn:hover {
+    border-color: var(--nt-accent);
+    color: var(--nt-accent-dark);
+    background: var(--nt-accent-glow);
 }
 
 /* ─── Difficulty meta ─── */

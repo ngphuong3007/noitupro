@@ -17,6 +17,7 @@ let lastLossStateAt = 0;
 let lastLossWord = "";
 let lastLossWordAt = 0;
 let isHomeReviewMode = false;
+const HELPER_COLLAPSE_KEY = 'noitu_helper_collapsed';
 
 const TRUSTED_LEARN_SOURCES = new Set(['known-selectors', 'recent-chips', 'input-value']);
 const BLOCKED_UI_TOKENS = new Set([
@@ -478,7 +479,7 @@ function renderHomeReviewMode() {
     lastRenderedWord = '';
     latestDetectedWord = '';
     metaDiv.innerHTML = 'Chế độ xem lại: vào trận để bật gợi ý theo từ đối thủ.';
-    listDiv.innerHTML = '<div class="no-word">Đang ở trang chủ/xếp hạng. Mục Xem lại nhanh vẫn hoạt động.</div>';
+    listDiv.innerHTML = '<div class="no-word">Đang ở trang chủ/xếp hạng. Mở trận để hiện gợi ý.</div>';
     refreshReviewInfoUI();
 }
 
@@ -500,24 +501,30 @@ fetch(chrome.runtime.getURL('dictionary.json'))
 const helperBox = document.createElement('div');
 helperBox.id = 'noitu-helper-box';
 helperBox.innerHTML = `
-    <div class="helper-header">💡 Gợi ý cho bạn</div>
-    <div id="difficulty-meta" class="difficulty-meta">Độ khó từ hiện tại: --%</div>
-    <div id="review-info" class="review-info">Đang tổng hợp dữ liệu...</div>
-    <div class="helper-actions">
-        <button id="mark-killer-btn" class="helper-action-btn" type="button">⭐ Lưu từ này</button>
-        <button id="toggle-killer-list-btn" class="helper-action-btn helper-action-secondary" type="button">📚 Từ đã lưu (0)</button>
-        <button id="toggle-opponent-review-btn" class="helper-action-btn helper-action-secondary" type="button">🧠 Xem lại đối thủ</button>
+    <div class="helper-header" id="helper-header">
+        <span class="helper-title">💡 Gợi ý cho bạn</span>
+        <button id="toggle-collapse-btn" class="toggle-collapse-btn" type="button" title="Thu gọn">−</button>
     </div>
-    <div id="killer-list-panel" class="killer-list-panel" style="display:none;">
-        <div id="killer-list-content" class="killer-list-content">Chưa có từ nào được lưu.</div>
+    <div id="helper-content" class="helper-content">
+        <div id="difficulty-meta" class="difficulty-meta">Độ khó từ hiện tại: --%</div>
+        <div class="helper-actions">
+            <button id="mark-killer-btn" class="helper-action-btn" type="button">⭐ Lưu từ này</button>
+            <button id="toggle-killer-list-btn" class="helper-action-btn helper-action-secondary" type="button">📚 Từ đã lưu (0)</button>
+            <button id="toggle-opponent-review-btn" class="helper-action-btn helper-action-secondary" type="button">🧠 Xem lại đối thủ</button>
+        </div>
+        <div id="killer-list-panel" class="killer-list-panel" style="display:none;">
+            <div id="killer-list-content" class="killer-list-content">Chưa có từ nào được lưu.</div>
+        </div>
+        <div id="opponent-review-panel" class="opponent-review-panel" style="display:none;">
+            <div id="opponent-review-content" class="opponent-review-content">Chưa có dữ liệu đối thủ.</div>
+        </div>
+        <div id="suggestion-list">Đang đợi đối thủ...</div>
     </div>
-    <div id="opponent-review-panel" class="opponent-review-panel" style="display:none;">
-        <div id="opponent-review-content" class="opponent-review-content">Chưa có dữ liệu đối thủ.</div>
-    </div>
-    <div id="suggestion-list">Đang đợi đối thủ...</div>
 `;
 document.body.appendChild(helperBox);
 
+const helperHeader = document.getElementById('helper-header');
+const toggleCollapseBtn = document.getElementById('toggle-collapse-btn');
 const markKillerBtn = document.getElementById('mark-killer-btn');
 const toggleKillerListBtn = document.getElementById('toggle-killer-list-btn');
 const toggleOpponentReviewBtn = document.getElementById('toggle-opponent-review-btn');
@@ -526,6 +533,37 @@ const killerListContent = document.getElementById('killer-list-content');
 const opponentReviewPanel = document.getElementById('opponent-review-panel');
 const opponentReviewContent = document.getElementById('opponent-review-content');
 const reviewInfoDiv = document.getElementById('review-info');
+
+function setHelperCollapsed(nextCollapsed) {
+    if (!helperBox) return;
+
+    const isCollapsed = !!nextCollapsed;
+    helperBox.classList.toggle('collapsed', isCollapsed);
+    if (toggleCollapseBtn) {
+        toggleCollapseBtn.innerText = isCollapsed ? '+' : '−';
+        toggleCollapseBtn.title = isCollapsed ? 'Mở rộng' : 'Thu gọn';
+    }
+
+    localStorage.setItem(HELPER_COLLAPSE_KEY, isCollapsed ? '1' : '0');
+}
+
+if (toggleCollapseBtn) {
+    toggleCollapseBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const next = !helperBox.classList.contains('collapsed');
+        setHelperCollapsed(next);
+    });
+}
+
+if (helperHeader) {
+    helperHeader.addEventListener('click', () => {
+        if (helperBox.classList.contains('collapsed')) {
+            setHelperCollapsed(false);
+        }
+    });
+}
+
+setHelperCollapsed(localStorage.getItem(HELPER_COLLAPSE_KEY) === '1');
 
 function getTotalKillerHits() {
     return Object.values(killerWordCounts).reduce((sum, n) => sum + Number(n || 0), 0);
