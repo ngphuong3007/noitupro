@@ -2320,7 +2320,7 @@
     "xuất phát",
     "xuất quân",
     "xuất quần",
-    "xuất qũy",
+    "xuất quỹ",
     "xuất ra",
     "xuất rượu",
     "xuất sắc",
@@ -10737,6 +10737,14 @@
     "câu ứng",
     "câu vắt",
     "câu ví"
+  ],
+  "mốt": [
+    "mốt lúa",
+    "mốt xấu"
+  ],
+  "tắp": [
+    "tắp lự",
+    "tắp nập"
   ],
   "lạc": [
     "lạc bộ",
@@ -27139,6 +27147,7 @@
     "pháp hóa",
     "pháp học",
     "pháp lệnh",
+    "pháp lịnh",
     "pháp lí",
     "pháp luận",
     "pháp luật",
@@ -32543,6 +32552,10 @@
     "liêm phóng",
     "liêm sỉ"
   ],
+
+  "khiết": [
+    "khiết tính"
+  ],
   "liềm": [
     "liềm móng"
   ],
@@ -32795,6 +32808,9 @@
     "loè đời",
     "loè loẹt"
   ],
+  "loẹt": [
+    "loẹt đoẹt"
+  ],
   "loen": [
     "loen loét"
   ],
@@ -32812,6 +32828,9 @@
     "lòi ruột",
     "lòi tiền",
     "lòi tói"
+  ],
+  "nạc": [
+    "nạc vai"
   ],
   "mặt": [
     "mặt bằng",
@@ -35728,6 +35747,10 @@
     "mút chìa",
     "mút ra",
     "mút xốp"
+  ],
+  "lỵ": [
+    "lỵ sở",
+    "lỵ hôn"
   ],
   "mưa": [
     "mưa bay",
@@ -50901,7 +50924,8 @@
     "xỉa xói"
   ],
   "xiêm": [
-    "xiêm áo"
+    "xiêm áo",
+    "xiêm y"
   ],
   "xiểm": [
     "xiểm nịnh"
@@ -52890,9 +52914,6 @@
   ],
   "nhẹt": [
     "nhẹt say"
-  ],
-  "lỵ": [
-    "lỵ hôn"
   ],
   "trungtụ": [
     "trungtụ họp"
